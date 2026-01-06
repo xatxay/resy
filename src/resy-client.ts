@@ -281,12 +281,28 @@ export class ResyClient {
     // Convert preferred times to comparable format
     const normalizedPreferred = preferredTimes.map((t) => this.normalizeTime(t));
 
-    return slots.filter((slot) => {
-      const slotTime = this.normalizeTime(slot.time);
-      return normalizedPreferred.some((preferred) => 
-        this.isTimeWithinRange(slotTime, preferred, 30) // 30 minute tolerance
-      );
-    });
+    // 30 minute tolerance
+    // return slots.filter((slot) => {
+    //   const slotTime = this.normalizeTime(slot.time);
+    //   return normalizedPreferred.some((preferred) => 
+    //     this.isTimeWithinRange(slotTime, preferred, 30) // 30 minute tolerance
+    //   );
+    // });
+    // Filter slots within tolerance and calculate distance to nearest preferred time
+    const slotsWithDistance = slots
+      .map((slot) => {
+        const slotTime = this.normalizeTime(slot.time);
+        const minDistance = Math.min(
+          ...normalizedPreferred.map((preferred) => Math.abs(slotTime - preferred))
+        );
+        return { slot, distance: minDistance };
+      })
+      .filter(({ distance }) => distance <= 15); // 15 minute tolerance (stricter)
+
+    // Sort by distance to preferred time (closest first)
+    slotsWithDistance.sort((a, b) => a.distance - b.distance);
+
+    return slotsWithDistance.map(({ slot }) => slot);
   }
 
   private normalizeTime(time: string): number {
