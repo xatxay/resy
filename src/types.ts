@@ -6,6 +6,8 @@ export interface ResyConfig {
   venues: VenueConfig[];
   defaultPartySize: number;
   preferredTimes?: string[]; // e.g., ["19:00", "19:30", "20:00"]
+  preferredTableTypes?: string[]; // e.g., ["Table", "Bar Seats", "Patio"]
+  scheduledStartTime?: string; // e.g., "2026-01-15 18:00" or "18:00"
 }
 
 export interface VenueConfig {
@@ -14,6 +16,7 @@ export interface VenueConfig {
   date: string; // YYYY-MM-DD format
   partySize?: number; // Override default party size
   preferredTimes?: string[]; // Override default preferred times
+  preferredTableTypes?: string[]; // e.g., ["Table", "Bar Seats", "Patio"]
 }
 
 // Resy API response types
@@ -526,6 +529,7 @@ export interface CliOptions {
   time?: string;
   interval?: number; // For snipe mode, in seconds
   dryRun?: boolean;
+  startAt?: string; // Scheduled start time e.g., "2026-01-15 18:00" or "18:00"
 }
 
 // Internal types

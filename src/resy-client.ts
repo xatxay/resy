@@ -31,9 +31,12 @@ export class ResyClient {
       headers: {
         'Authorization': `ResyAPI api_key="${apiKey}"`,
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en',
+        'Cache-Control': 'no-cache',
         'Origin': 'https://resy.com',
         'Referer': 'https://resy.com/',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
       },
     });
 
@@ -69,6 +72,14 @@ export class ResyClient {
     );
   }
 
+  private clearCachedToken(): void {
+    this.authToken = null;
+    const tokenPath = path.join(process.cwd(), TOKEN_CACHE_FILE);
+    if (fs.existsSync(tokenPath)) {
+      fs.unlinkSync(tokenPath);
+    }
+  }
+
   async authenticate(): Promise<boolean> {
     if (this.authToken) {
       return true;
@@ -99,7 +110,8 @@ export class ResyClient {
   async findAvailableSlots(
     venueId: number,
     date: string,
-    partySize: number
+    partySize: number,
+    retryOnError: boolean = true
   ): Promise<AvailableSlot[]> {
     if (!this.authToken) {
       const authenticated = await this.authenticate();
@@ -139,7 +151,28 @@ export class ResyClient {
 
       return slots;
     } catch (error: any) {
-      console.error('✗ Failed to find slots:', error.response?.data?.message || error.message);
+      const statusCode = error.response?.status;
+      
+      // If we get a 500 error and haven't retried yet, clear token and retry
+      if (statusCode === 500 && retryOnError) {
+        console.log('  Received 500 error, token may be invalid. Re-authenticating...');
+        this.clearCachedToken();
+        const authenticated = await this.authenticate();
+        if (authenticated) {
+          return this.findAvailableSlots(venueId, date, partySize, false);
+        }
+      }
+      
+      const errorMsg = error.response?.data?.message || error.message;
+      const errorDetails = error.response?.data;
+      
+      console.error(`✗ Failed to find slots: ${errorMsg}`);
+      if (statusCode) {
+        console.error(`  HTTP Status: ${statusCode}`);
+      }
+      if (errorDetails && statusCode >= 400) {
+        console.error(`  Details:`, JSON.stringify(errorDetails, null, 2));
+      }
       return [];
     }
   }
@@ -303,6 +336,20 @@ export class ResyClient {
     slotsWithDistance.sort((a, b) => a.distance - b.distance);
 
     return slotsWithDistance.map(({ slot }) => slot);
+  }
+
+  filterSlotsByTableType(slots: AvailableSlot[], preferredTableTypes?: string[]): AvailableSlot[] {
+    if (!preferredTableTypes || preferredTableTypes.length === 0) {
+      return slots;
+    }
+
+    // Normalize table type names for case-insensitive comparison
+    const normalizedPreferred = preferredTableTypes.map((t) => t.toLowerCase().trim());
+
+    return slots.filter((slot) => {
+      const slotType = (slot.tableType || slot.type || '').toLowerCase().trim();
+      return normalizedPreferred.some((preferred) => slotType.includes(preferred) || preferred.includes(slotType));
+    });
   }
 
   private normalizeTime(time: string): number {

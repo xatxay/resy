@@ -4,13 +4,18 @@
   "apiKey": "YOUR_RESY_API_KEY",
   "defaultPartySize": 2,
   "preferredTimes": ["19:00", "19:30", "20:00", "20:30"],
+  "preferredTableTypes": ["Table"],
+  "_comment_preferredTableTypes": "Optional: Filter by table type. Common values: 'Table', 'Bar Seats', 'Patio', 'Counter'. Leave empty or omit to accept any type.",
+  "scheduledStartTime": "18:00",
+  "_comment_scheduledStartTime": "Optional: Schedule when to start the script. Formats: '18:00' (time only), '2026-01-15 18:00' (full datetime), or '2026-01-15T18:00:00' (ISO 8601). Can be overridden with --start-at CLI option.",
   "venues": [
     {
       "id": 12345,
       "name": "Restaurant Name",
       "date": "2026-02-14",
       "partySize": 2,
-      "preferredTimes": ["19:00", "19:30", "20:00"]
+      "preferredTimes": ["19:00", "19:30", "20:00"],
+      "preferredTableTypes": ["Table", "Patio"]
     }
   ]
 }

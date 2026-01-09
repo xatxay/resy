@@ -25,6 +25,7 @@ export class ResyScheduler {
     venues: VenueConfig[],
     defaultPartySize: number,
     preferredTimes: string[] | undefined,
+    preferredTableTypes: string[] | undefined,
     options: SnipeOptions
   ): Promise<BookingResult | null> {
     this.isRunning = true;
@@ -54,9 +55,10 @@ export class ResyScheduler {
         for (const venue of venues) {
           const partySize = venue.partySize || defaultPartySize;
           const times = venue.preferredTimes || preferredTimes;
+          const tableTypes = venue.preferredTableTypes || preferredTableTypes;
 
           try {
-            const slots = await this.client.findAvailableSlots(
+            let slots = await this.client.findAvailableSlots(
               venue.id,
               venue.date,
               partySize
@@ -64,6 +66,14 @@ export class ResyScheduler {
 
             if (slots.length === 0) {
               console.log(chalk.gray(`  ${venue.name}: No slots available`));
+              continue;
+            }
+
+            // Filter by table type if specified
+            slots = this.client.filterSlotsByTableType(slots, tableTypes);
+
+            if (slots.length === 0) {
+              console.log(chalk.gray(`  ${venue.name}: No slots matching preferred table types`));
               continue;
             }
 
@@ -76,7 +86,7 @@ export class ResyScheduler {
             }
 
             const bestSlot = filteredSlots[0];
-            console.log(chalk.green(`  ✓ ${venue.name}: Found slot at ${bestSlot.time}!`));
+            console.log(chalk.green(`  ✓ ${venue.name}: Found slot at ${bestSlot.time} (${bestSlot.type})!`));
 
             if (options.onSlotFound) {
               options.onSlotFound(bestSlot);
@@ -161,22 +171,106 @@ export class ResyScheduler {
   }
 }
 
+/**
+ * Parse a scheduled time string into a Date object
+ * Supports formats:
+ * - "2026-01-15 18:00" or "2026-01-15 18:00:00" (full date and time)
+ * - "18:00" or "18:00:00" (time only, defaults to today if not passed, otherwise tomorrow)
+ * - "2026-01-15T18:00:00" (ISO 8601 format)
+ */
+export function parseScheduledTime(timeString: string): Date {
+  const now = new Date();
+  
+  // Try parsing as ISO 8601 first
+  if (timeString.includes('T')) {
+    const date = new Date(timeString);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  
+  // Check if it's a full date-time format (YYYY-MM-DD HH:MM or YYYY-MM-DD HH:MM:SS)
+  const fullDateTimeRegex = /^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+  const fullMatch = timeString.match(fullDateTimeRegex);
+  
+  if (fullMatch) {
+    const [, year, month, day, hour, minute, second] = fullMatch;
+    return new Date(
+      parseInt(year),
+      parseInt(month) - 1,
+      parseInt(day),
+      parseInt(hour),
+      parseInt(minute),
+      second ? parseInt(second) : 0
+    );
+  }
+  
+  // Check if it's time only format (HH:MM or HH:MM:SS)
+  const timeOnlyRegex = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+  const timeMatch = timeString.match(timeOnlyRegex);
+  
+  if (timeMatch) {
+    const [, hour, minute, second] = timeMatch;
+    const targetDate = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      parseInt(hour),
+      parseInt(minute),
+      second ? parseInt(second) : 0
+    );
+    
+    // If the time has already passed today, schedule for tomorrow
+    if (targetDate <= now) {
+      targetDate.setDate(targetDate.getDate() + 1);
+    }
+    
+    return targetDate;
+  }
+  
+  throw new Error(
+    `Invalid time format: "${timeString}". ` +
+    `Supported formats: "YYYY-MM-DD HH:MM", "HH:MM", or "YYYY-MM-DDTHH:MM:SS"`
+  );
+}
+
 export function scheduleAtTime(
   targetTime: Date,
   callback: () => Promise<void>
-): cron.ScheduledTask {
-  const minute = targetTime.getMinutes();
-  const hour = targetTime.getHours();
-  const day = targetTime.getDate();
-  const month = targetTime.getMonth() + 1;
-
-  const cronExpression = `${minute} ${hour} ${day} ${month} *`;
+): void {
+  const now = new Date();
+  
+  // Calculate milliseconds until execution
+  const msUntilExecution = targetTime.getTime() - now.getTime();
+  
+  // Validate that the target time is in the future (at least 1 second)
+  if (msUntilExecution < 1000) {
+    throw new Error(
+      `Scheduled time must be at least 1 second in the future. ` +
+      `Target: ${targetTime.toLocaleString()}, Current: ${now.toLocaleString()}`
+    );
+  }
   
   console.log(chalk.cyan(`⏰ Scheduled to run at ${targetTime.toLocaleString()}`));
   
-  return cron.schedule(cronExpression, async () => {
-    console.log(chalk.green('⏰ Scheduled time reached! Starting...'));
+  // Calculate and display time until execution
+  const secondsUntil = Math.floor(msUntilExecution / 1000);
+  const minutesUntil = Math.floor(secondsUntil / 60);
+  const hoursUntil = Math.floor(minutesUntil / 60);
+  
+  if (hoursUntil > 0) {
+    console.log(chalk.gray(`   (in ${hoursUntil} hour(s) and ${minutesUntil % 60} minute(s))`));
+  } else if (minutesUntil > 0) {
+    console.log(chalk.gray(`   (in ${minutesUntil} minute(s) and ${secondsUntil % 60} second(s))`));
+  } else {
+    console.log(chalk.gray(`   (in ${secondsUntil} second(s))`));
+  }
+  console.log(chalk.gray('   Waiting...\n'));
+  
+  // Use setTimeout for one-time scheduled execution
+  setTimeout(async () => {
+    console.log(chalk.green('⏰ Scheduled time reached! Starting...\n'));
     await callback();
-  });
+  }, msUntilExecution);
 }
 
